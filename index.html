@@ -56,8 +56,8 @@ a{color:inherit}
 .langbtn{font:700 .85rem var(--body);background:var(--gold);color:var(--gold-ink);border:0;border-radius:999px;padding:6px 12px;cursor:pointer}
 /* hero */
 .hero{position:relative;overflow:hidden;background:radial-gradient(1200px 500px at 85% -10%,#2b3a75 0%,transparent 60%),var(--ink);color:#f3efe2}
-#hero3d{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;opacity:.9}
-.hero::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,var(--ink) 0%,color-mix(in srgb,var(--ink) 70%,transparent) 45%,transparent 75%)}
+#hero3d{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;opacity:1}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,color-mix(in srgb,var(--ink) 75%,transparent) 0%,color-mix(in srgb,var(--ink) 35%,transparent) 50%,transparent 80%)}
 .hero .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.2fr .9fr;gap:36px;align-items:center;padding-block:56px 64px}
 .hero > .wrap > *{min-width:0}
 .eyebrow{display:inline-block;font-size:.8rem;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 55%,transparent);border-radius:999px;padding:4px 12px}
@@ -70,7 +70,9 @@ h1 small{display:block;font-size:.45em;color:var(--gold);font-weight:500;margin-
 .btn.ghost{border-color:color-mix(in srgb,#f3efe2 35%,transparent);color:#f3efe2}
 .btn:hover{transform:translateY(-1px)}
 .btn:focus-visible,.langbtn:focus-visible,.nav a:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
-.photo{position:relative;justify-self:center;max-width:360px;width:100%}
+.photo{position:relative;justify-self:center;max-width:360px;width:100%;transform-style:preserve-3d;will-change:transform}
+.photo .shine{position:absolute;inset:3px;border-radius:20px;pointer-events:none;mix-blend-mode:screen}
+.photo .seal{transform:translateZ(40px)}
 .photo img{width:100%;max-width:100%;height:auto;display:block;border-radius:22px;border:3px solid var(--gold);box-shadow:0 20px 50px rgba(0,0,0,.45)}
 .seal{position:absolute;left:-14px;bottom:22px;background:var(--gold);color:var(--gold-ink);font-weight:700;font-size:.8rem;border-radius:999px;padding:7px 13px;box-shadow:0 6px 18px rgba(0,0,0,.35)}
 .stats{display:flex;flex-wrap:wrap;gap:22px;margin-top:26px}
@@ -164,6 +166,7 @@ footer{padding-block:24px;color:var(--muted);font-size:.85rem;text-align:center}
       </div>
       <div class="photo">
         <img src="rain_portrait.jpg" alt="Sarath Ream (Rain) in graduation gown holding his diploma" width="600" height="718">
+        <span class="shine" aria-hidden="true"></span>
         <span class="seal">🎓 <span lang="en">University graduate</span><span lang="km">និស្សិតបញ្ចប់ការសិក្សា</span></span>
       </div>
     </div>
@@ -262,7 +265,8 @@ footer{padding-block:24px;color:var(--muted);font-size:.85rem;text-align:center}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-/* three.js hero: a slowly turning golden "network globe" (creator + developer) with drifting stars; follows the mouse a little */
+/* three.js hero: "RAIN" - glowing gold + blue 3D raindrops falling onto a dark wet floor with ripples.
+   Mouse = wind, click = big ripple. Fewer drops on phones; one still frame if the viewer prefers reduced motion. */
 (function () {
   var canvas = document.getElementById("hero3d");
   if (!canvas || !window.THREE) return;
@@ -271,69 +275,159 @@ footer{padding-block:24px;color:var(--muted);font-size:.85rem;text-align:center}
   try { renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true }); } catch (e) { return; }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-  camera.position.set(0, 0, 9);
-  var gold = new THREE.Color(0xe0b04a), coral = new THREE.Color(0xf0694d);
+  scene.fog = new THREE.Fog(0x141b33, 9, 26);
+  var camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
+  camera.position.set(0, 1.4, 9);
+  camera.lookAt(0, -0.6, 0);
 
-  var globe = new THREE.Group();
-  scene.add(globe);
-  // points on a sphere
-  var N = 220, R = 2.6, pos = [], pts = [];
-  for (var i = 0; i < N; i++) {
-    var y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), th = i * 2.399963;
-    var v = new THREE.Vector3(Math.cos(th) * r * R, y * R, Math.sin(th) * r * R);
-    pts.push(v); pos.push(v.x, v.y, v.z);
+  var FLOOR = -2.4, TOP = 9, XR = 14, ZMIN = -10, ZMAX = 5;
+  var mobile = window.innerWidth < 760;
+  var N = mobile ? 420 : 1100;
+
+  // ---- raindrops: one short line per drop ----
+  var pos = new Float32Array(N * 6), col = new Float32Array(N * 6);
+  var drops = [];
+  var gold = new THREE.Color(0xe0b04a), blue = new THREE.Color(0x8fb4ff), white = new THREE.Color(0xf3efe2);
+  function resetDrop(d, anyY) {
+    d.x = (Math.random() - 0.5) * XR * 2;
+    d.z = ZMIN + Math.random() * (ZMAX - ZMIN);
+    d.y = anyY ? FLOOR + Math.random() * (TOP - FLOOR) : TOP + Math.random() * 3;
+    d.v = 9 + Math.random() * 7;
+    d.len = 0.25 + Math.random() * 0.35;
   }
-  var pg = new THREE.BufferGeometry();
-  pg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  globe.add(new THREE.Points(pg, new THREE.PointsMaterial({ color: gold, size: 0.06, transparent: true, opacity: 0.95 })));
-  // links between near points
-  var lp = [];
-  for (var a = 0; a < N; a++) for (var b = a + 1; b < N; b++) if (pts[a].distanceTo(pts[b]) < 0.62) lp.push(pts[a].x, pts[a].y, pts[a].z, pts[b].x, pts[b].y, pts[b].z);
-  var lg = new THREE.BufferGeometry();
-  lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
-  globe.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: gold, transparent: true, opacity: 0.22 })));
-  // an orbit ring with a coral "play" dot
-  var ring = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.012, 8, 160), new THREE.MeshBasicMaterial({ color: gold, transparent: true, opacity: 0.45 }));
-  ring.rotation.x = 1.15; globe.add(ring);
-  var dot = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), new THREE.MeshBasicMaterial({ color: coral }));
-  globe.add(dot);
-  // stars
-  var sp = [];
-  for (var s = 0; s < 500; s++) sp.push((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 18, -Math.random() * 18 - 2);
-  var sg = new THREE.BufferGeometry();
-  sg.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
-  var stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xf3efe2, size: 0.03, transparent: true, opacity: 0.6 }));
-  scene.add(stars);
+  for (var i = 0; i < N; i++) {
+    var d = {}; resetDrop(d, true); drops.push(d);
+    var r = Math.random(), c = r < 0.45 ? gold : (r < 0.85 ? blue : white);
+    for (var k = 0; k < 2; k++) { col[i * 6 + k * 3] = c.r; col[i * 6 + k * 3 + 1] = c.g; col[i * 6 + k * 3 + 2] = c.b; }
+  }
+  var rg = new THREE.BufferGeometry();
+  rg.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  rg.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  var rain = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(rain);
 
-  var mx = 0, my = 0;
-  window.addEventListener("pointermove", function (e) { mx = e.clientX / window.innerWidth - 0.5; my = e.clientY / window.innerHeight - 0.5; }, { passive: true });
+  // ---- wet floor: soft glowing reflection pool ----
+  var cv = document.createElement("canvas"); cv.width = cv.height = 256;
+  var g = cv.getContext("2d"), grd = g.createRadialGradient(128, 128, 10, 128, 128, 128);
+  grd.addColorStop(0, "rgba(224,176,74,0.35)"); grd.addColorStop(0.45, "rgba(90,120,220,0.12)"); grd.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 20), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = FLOOR; scene.add(floor);
 
+  // ---- ripples: pooled rings that grow and fade ----
+  var ringGeo = new THREE.RingGeometry(0.92, 1, 48);
+  var ripples = [];
+  for (var j = 0; j < (mobile ? 40 : 90); j++) {
+    var m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xe0b04a, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.visible = false; scene.add(m);
+    ripples.push({ m: m, t: 0, life: 1, size: 1 });
+  }
+  var rp = 0;
+  function ripple(x, z, size, life, color) {
+    var o = ripples[rp]; rp = (rp + 1) % ripples.length;
+    o.m.position.set(x, FLOOR + 0.01, z); o.t = 0; o.life = life; o.size = size; o.m.visible = true;
+    o.m.material.color.set(color || 0xe0b04a);
+  }
+
+  // ---- gold dust around the photo card (desktop) ----
+  var dustN = mobile ? 60 : 160, dp = new Float32Array(dustN * 3), dust = [];
+  for (var q = 0; q < dustN; q++) dust.push({ a: Math.random() * 6.283, r: 2 + Math.random() * 2.2, y: (Math.random() - 0.5) * 5, s: 0.2 + Math.random() * 0.5 });
+  var dg = new THREE.BufferGeometry(); dg.setAttribute("position", new THREE.BufferAttribute(dp, 3));
+  var dustPts = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0xe0b04a, size: 0.06, transparent: true, opacity: 0.85,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(dustPts);
+
+  // ---- input: wind + click ripple ----
+  var wind = 0, windTarget = 0, mouseX = 0;
+  window.addEventListener("pointermove", function (e) { mouseX = e.clientX / window.innerWidth - 0.5; windTarget = mouseX * 6; }, { passive: true });
+  var ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -FLOOR), hit = new THREE.Vector3();
+  canvas.parentElement.addEventListener("pointerdown", function (e) {
+    var rect = canvas.getBoundingClientRect();
+    var v = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(v, camera);
+    if (ray.ray.intersectPlane(plane, hit)) { ripple(hit.x, hit.z, 3.2, 1.8, 0xf3efe2); ripple(hit.x, hit.z, 2, 1.4, 0xe0b04a); }
+  });
+
+  var dustCx = 3.6;
   function resize() {
     var w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
-    globe.position.x = w > 760 ? 3.6 : 0;            // globe sits behind the photo side on desktop
-    globe.position.y = w > 760 ? 0 : 1.2;
-    globe.scale.setScalar(w > 760 ? 1 : 0.8);
+    dustCx = w > 760 ? 4.2 : 0;
   }
   window.addEventListener("resize", resize);
   resize();
 
-  var t0 = performance.now(), visible = true;
+  var last = performance.now(), visible = true, T = 0;
   if ("IntersectionObserver" in window) new IntersectionObserver(function (en) { visible = en[0].isIntersecting; }).observe(canvas);
-  function frame(now) {
-    var t = (now - t0) / 1000;
-    globe.rotation.y = t * 0.12 + mx * 0.4;
-    globe.rotation.x = 0.25 + my * 0.25;
-    dot.position.set(Math.cos(t * 0.8) * 3.4, Math.sin(t * 0.8) * 3.4 * Math.cos(1.15), Math.sin(t * 0.8) * 3.4 * Math.sin(1.15));
-    stars.rotation.z = t * 0.01;
-    renderer.render(scene, camera);
-    if (!reduce) requestAnimationFrame(frame);
+  function step(dt) {
+    T += dt;
+    wind += (windTarget - wind) * Math.min(1, dt * 2);
+    for (var i = 0; i < N; i++) {
+      var d = drops[i];
+      d.y -= d.v * dt; d.x += wind * dt;
+      if (d.y < FLOOR) {
+        if (Math.random() < 0.28 && d.z > -6) ripple(d.x, d.z, 0.35 + Math.random() * 0.5, 0.7 + Math.random() * 0.5);
+        resetDrop(d, false);
+      }
+      if (d.x > XR) d.x -= XR * 2; else if (d.x < -XR) d.x += XR * 2;
+      var tx = wind / d.v * d.len, o = i * 6;
+      pos[o] = d.x; pos[o + 1] = d.y; pos[o + 2] = d.z;
+      pos[o + 3] = d.x - tx; pos[o + 4] = d.y + d.len; pos[o + 5] = d.z;
+    }
+    rg.attributes.position.needsUpdate = true;
+    for (var k = 0; k < ripples.length; k++) {
+      var R = ripples[k]; if (!R.m.visible) continue;
+      R.t += dt; var f = R.t / R.life;
+      if (f >= 1) { R.m.visible = false; continue; }
+      var sc = R.size * (0.1 + f); R.m.scale.set(sc, sc, sc);
+      R.m.material.opacity = 0.8 * (1 - f);
+    }
+    for (var q = 0; q < dustN; q++) {
+      var p = dust[q]; p.a += dt * p.s * 0.4;
+      dp[q * 3] = dustCx + Math.cos(p.a) * p.r; dp[q * 3 + 1] = p.y + Math.sin(T * p.s + q) * 0.15; dp[q * 3 + 2] = Math.sin(p.a) * p.r * 0.6 - 1;
+    }
+    dg.attributes.position.needsUpdate = true;
+    camera.position.x += (mouseX * 0.8 - camera.position.x) * Math.min(1, dt * 1.5);
+    camera.lookAt(0, -0.6, 0);
   }
-  if (reduce) frame(t0 + 4000);
-  else requestAnimationFrame(function loop(now) { if (visible) frame(now); else requestAnimationFrame(loop); });
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (visible) { step(dt); renderer.render(scene, camera); }
+    requestAnimationFrame(frame);
+  }
+  if (reduce) { for (var w0 = 0; w0 < 40; w0++) step(0.03); renderer.render(scene, camera); }
+  else requestAnimationFrame(function (t) { last = t; frame(t); });
+})();
+
+/* 3D tilting photo card with a moving light shine (mouse on desktop, phone tilt where allowed) */
+(function () {
+  var card = document.querySelector(".photo");
+  if (!card) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var hero = document.querySelector(".hero"), shine = card.querySelector(".shine");
+  var tx = 0, ty = 0, cx = 0, cy = 0;
+  hero.addEventListener("pointermove", function (e) {
+    var r = card.getBoundingClientRect();
+    tx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width)));
+    ty = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (r.height)));
+  });
+  hero.addEventListener("pointerleave", function () { tx = 0; ty = 0; });
+  window.addEventListener("deviceorientation", function (e) {
+    if (e.gamma == null) return;
+    tx = Math.max(-1, Math.min(1, e.gamma / 30)); ty = Math.max(-1, Math.min(1, (e.beta - 40) / 30));
+  });
+  (function loop() {
+    cx += (tx - cx) * 0.08; cy += (ty - cy) * 0.08;
+    card.style.transform = "perspective(900px) rotateY(" + (cx * 12).toFixed(2) + "deg) rotateX(" + (-cy * 10).toFixed(2) + "deg)";
+    if (shine) shine.style.background = "radial-gradient(circle at " + (50 + cx * 40).toFixed(1) + "% " + (40 + cy * 40).toFixed(1) +
+      "%, rgba(255,240,200,.35), rgba(255,240,200,0) 55%)";
+    requestAnimationFrame(loop);
+  })();
 })();
 
 /* gentle scroll reveal: content is visible by default; only sections below the fold start hidden */
